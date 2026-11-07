@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus Prism – Staff Attendance</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--g:#0b5d3b;--n:#14284b;--bg:#fff;--s:#f3f6f5;--t:#1b2430;--b:#d5dcd9}
+@media(prefers-color-scheme:dark){:root{--bg:#10161c;--s:#18212a;--t:#e8eef0;--b:#2c3a44;--g:#3fb283;--n:#8fb0ee}}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Arial,sans-serif;background:var(--bg);color:var(--t);font-size:15px}
+header{background:var(--n);color:#fff;padding:10px 14px}header b{font-size:17px}header small{display:block;opacity:.8}
+nav{position:fixed;top:0;left:0;bottom:0;width:250px;transform:translateX(-100%);transition:transform .2s;z-index:20;background:var(--s);overflow-y:auto;border-right:3px solid var(--g)}
+nav.open{transform:none}nav .nt{background:var(--n);color:#fff;padding:14px 16px;font-weight:700}
+nav button{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--b);background:none;color:var(--t);padding:15px 16px;font-size:16px;font-weight:600}
+nav button.on{background:var(--g);color:#fff}
+#ov{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:15}
+#mb{background:none;border:0;color:#fff;font-size:28px;padding:0 6px;line-height:1}
+main{padding:12px;max-width:1100px;margin:auto}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:10px 0}
+.card{background:var(--s);border-left:5px solid var(--g);padding:10px;border-radius:8px}.card b{font-size:22px;display:block}
+input,select,button.b{font-size:15px;padding:9px;border:1px solid var(--b);border-radius:8px;background:var(--bg);color:var(--t);max-width:100%}
+button.b{background:var(--g);color:#fff;border:0;font-weight:600;margin:2px}button.b.n{background:var(--n);color:#fff}button.b.r{background:#b3261e}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
+label{font-size:12px;display:block;margin-bottom:2px}
+.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{border:1px solid var(--b);padding:5px 7px;text-align:left;white-space:nowrap}th{background:var(--n);color:#fff;position:sticky;top:0}
+.P,.OD{background:#c8ecd6;color:#0a3d22}.A{background:#f6c4c0;color:#6b100a}.WO{background:#c7e0f8;color:#0b2f57}.H{background:#d9d9d9;color:#222}
+.CL,.SL,.EL{background:#ffd9a8;color:#5a3000}.HD{background:#fff0a0;color:#4a3d00}
+.att{display:flex;flex-wrap:wrap;gap:3px}.att button{border:1px solid var(--b);border-radius:6px;padding:8px 6px;min-width:38px;font-weight:700;font-size:12px;background:var(--bg);color:var(--t)}
+.att button.sel{outline:3px solid var(--n)}
+.emp{border:1px solid var(--b);border-radius:8px;padding:8px;margin:6px 0}
+.hide{display:none}.warn{color:#b3261e;font-weight:600}
+@media print{header,nav,#ov,.row,.noprint{display:none!important}}
+</style>
+</head>
+<body>
+<header id="hd" style="display:flex;align-items:center;gap:10px"></header>
+<div id="ov" class="hide" onclick="drawer(0)"></div><nav id="nav"></nav>
+<main id="app"></main>
+<script>
+const KEY='focusprism_attendance_v1';
+const CODES=['P','A','H','WO','CL','SL','EL','HD','OD'];
+const NAMES={P:'Present',A:'Absent',H:'Holiday',WO:'Weekly Off',CL:'Casual Leave',SL:'Sick Leave',EL:'Earned Leave',HD:'Half Day',OD:'On Duty'};
+const DAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const DEF_DEPTS=['Main Kitchen','Indian Kitchen','Chinese Kitchen','Continental Kitchen','Bakery','Pantry','Service','Housekeeping','Stewarding','Security','Administration','Accounts','Transport','Maintenance','Stores'];
+let db;
+try{db=JSON.parse(localStorage.getItem(KEY))}catch(e){}
+if(!db||!db.emps)db={emps:[],nextId:1,depts:DEF_DEPTS.slice(),att:{},closed:{},log:[]};
+db.set=db.set||{org:'Focus Prism',addr:'',logo:''};db.slipx=db.slipx||{};db.set.stat=Object.assign({basic:50,hra:40,pfRate:12,pfCeil:25000,cap:'Yes',esiLimit:21000,esiEmp:0.75,esiEr:3.25},db.set.stat||{});
+function save(){try{localStorage.setItem(KEY,JSON.stringify(db))}catch(e){alert('Storage full or blocked – export a backup now.')}}
+function log(m){db.log.unshift(new Date().toLocaleString('en-GB')+' – '+m);db.log=db.log.slice(0,500);save()}
+const $=s=>document.querySelector(s);
+const pad=n=>String(n).padStart(2,'0');
+const today=()=>{const d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())};
+const fmt=d=>d?d.split('-').reverse().join('/'):'';
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const newId=()=>'KAN-'+String(db.nextId).padStart(4,'0');
+const isClosed=d=>!!db.closed[d.slice(0,7)];
+let tab='dash',adate=today(),adept='',aq='',mm=+today().slice(5,7),my=+today().slice(0,4),eq='';
+const TABS=[['dash','Dashboard'],['att','Attendance'],['emp','Employees'],['month','Monthly'],['dept','Departments'],['slip','Salary Slip'],['set','Settings'],['data','Backup / Import']];
+function nav(){$('#nav').innerHTML=`<div class="nt">${esc(db.set.org)}</div>`+TABS.map(t=>`<button class="${tab==t[0]?'on':''}" onclick="tab='${t[0]}';drawer(0);render()">${t[1]}</button>`).join('')}
+function drawer(o){$('#nav').classList.toggle('open',!!o);$('#ov').classList.toggle('hide',!o)}
+function hdr(){const t=db.set;document.title=t.org+' – Staff Attendance';$('#hd').innerHTML='<button id="mb" onclick="drawer(1)" aria-label="Menu">☰</button>'+(t.logo?`<img src="${t.logo}" style="height:40px;max-width:120px;object-fit:contain;background:#fff;border-radius:6px;padding:2px">`:'')+`<div><b>${esc(t.org)}</b><small>Smart Staff Attendance &amp; Employee Management</small></div>`}
+function render(){if(tab!='set')unlocked=false;hdr();nav();$('#app').innerHTML=({dash,att,emp,month,dept,slip,set,data})[tab]();window.scrollTo(0,0)}
+const active=()=>db.emps.filter(e=>e.status!=='Inactive');
+function codeFor(e,d){const a=(db.att[d]||{})[e.id];if(a)return a;if(e.weeklyOff&&new Date(d+'T00:00:00').getDay()==DAYS.indexOf(e.weeklyOff))return 'WO';return ''}
+/* ---------- Dashboard ---------- */
+function dash(){
+ const a=active(),c={};a.forEach(e=>{const k=codeFor(e,adate)||'—';c[k]=(c[k]||0)+1});
+ const pres=(c.P||0)+(c.OD||0)+.5*(c.HD||0),sched=a.length-(c.WO||0)-(c.H||0);
+ const leave=(c.CL||0)+(c.SL||0)+(c.EL||0);
+ let byDept=db.depts.map(d=>{const l=a.filter(e=>e.dept==d);if(!l.length)return'';const p=l.filter(e=>['P','OD'].includes(codeFor(e,adate))).length,ab=l.filter(e=>codeFor(e,adate)=='A').length;return`<tr><td>${esc(d)}</td><td>${l.length}</td><td>${p}</td><td>${ab}</td></tr>`}).join('');
+ return`<div class="row"><label>Date</label><input type="date" value="${adate}" onchange="adate=this.value;render()"> <b>${fmt(adate)}</b></div>
+ <div class="cards"><div class="card"><b>${a.length}</b>Total employees</div><div class="card"><b>${pres}</b>Present</div><div class="card" style="border-color:#b3261e"><b>${c.A||0}</b>Absent</div>
+ <div class="card"><b>${leave}</b>On leave</div><div class="card"><b>${c.WO||0}</b>Weekly off</div><div class="card"><b>${c.HD||0}</b>Half day</div><div class="card"><b>${c['—']||0}</b>Not marked</div>
+ <div class="card"><b>${sched>0?(pres/sched*100).toFixed(1):0}%</b>Attendance</div></div>
+ <div class="scroll"><table><tr><th>Department</th><th>Staff</th><th>Present</th><th>Absent</th></tr>${byDept||'<tr><td colspan=4>No employees yet</td></tr>'}</table></div>`}
+/* ---------- Daily attendance ---------- */
+function att(){
+ const locked=isClosed(adate);
+ let l=active().filter(e=>(!adept||e.dept==adept)&&(!aq||(e.name+e.id).toLowerCase().includes(aq.toLowerCase())));
+ return`<div class="row"><input type="date" value="${adate}" onchange="adate=this.value;render()">
+ <select onchange="adept=this.value;render()"><option value="">All departments</option>${db.depts.map(d=>`<option ${d==adept?'selected':''}>${esc(d)}</option>`).join('')}</select>
+ <input placeholder="Search ID / name" value="${esc(aq)}" onchange="aq=this.value;render()"></div>
+ ${locked?'<p class="warn">This month is closed. Reopen it in Monthly to edit.</p>':`<div class="row"><button class="b" onclick="markAll('P')">Mark all shown Present</button><button class="b n" onclick="markAll('')">Clear shown</button></div>`}
+ <p>${l.length} employees · ${fmt(adate)} (${DAYS[new Date(adate+'T00:00:00').getDay()]})</p>
+ ${l.map(e=>{const c=codeFor(e,adate);return`<div class="emp"><b>${esc(e.name)}</b> <small>${e.id} · ${esc(e.dept)}</small> <span class="${c}" style="padding:1px 6px;border-radius:4px">${c||'—'}</span>
+ <div class="att">${CODES.map(k=>`<button class="${k} ${c==k?'sel':''}" title="${NAMES[k]}" ${locked?'disabled':''} onclick="setAtt('${e.id}','${k}')">${k}</button>`).join('')}</div></div>`}).join('')||'<p>No employees.</p>'}`}
+function setAtt(id,k){if(isClosed(adate))return;const m=db.att[adate]=db.att[adate]||{};const old=m[id];if(old===k)delete m[id];else m[id]=k;log(`Attendance ${id} ${adate}: ${old||'-'} → ${m[id]||'cleared'}`);const y=window.scrollY;render();window.scrollTo(0,y)}
+function markAll(k){const l=active().filter(e=>(!adept||e.dept==adept)&&(!aq||(e.name+e.id).toLowerCase().includes(aq.toLowerCase())));
+ if(!confirm(`${k?'Mark '+k+' for':'Clear'} ${l.length} employees on ${fmt(adate)}?`))return;
+ const m=db.att[adate]=db.att[adate]||{};l.forEach(e=>{if(k){if(!m[e.id]&&codeFor(e,adate)!='WO')m[e.id]=k}else delete m[e.id]});log(`Bulk ${k||'clear'} for ${l.length} on ${adate}`);render()}
+/* ---------- Employees ---------- */
+function emp(){
+ const l=db.emps.filter(e=>!eq||(e.name+e.id+e.mobile).toLowerCase().includes(eq.toLowerCase()));
+ return`<h3>Register employee <small>(next ID: ${newId()})</small></h3>
+ <div class="grid" id="f">
+ <div><label>Name *</label><input id="fn"></div><div><label>Mobile</label><input id="fm" inputmode="numeric" maxlength="10"></div>
+ <div><label>Department *</label><select id="fd">${db.depts.map(d=>`<option>${esc(d)}</option>`).join('')}</select></div>
+ <div><label>Designation</label><input id="fg"></div><div><label>Date of joining</label><input type="date" id="fj"></div>
+ <div><label>Employment type</label><select id="ft"><option>Permanent</option><option>Contract</option><option>Daily wage</option><option>Trainee</option></select></div>
+ <div><label>Shift</label><select id="fs"><option>Morning</option><option>General</option><option>Second</option><option>Night</option></select></div>
+ <div><label>Weekly off</label><select id="fw">${DAYS.map(d=>`<option>${d}</option>`).join('')}</select></div>
+ <div><label>Salary type</label><select id="fy"><option>Monthly</option><option>Daily</option></select></div>
+ <div><label>Salary / wage</label><input id="fa" type="number" inputmode="decimal"></div>
